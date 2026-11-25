@@ -577,22 +577,33 @@ void eeprom_read_block(void *buf, const void *addr, size_t len) {
 }
 
 void eeprom_write_block(const void *buf, void *addr, size_t len) {
-    uint16_t i;
     intptr_t offset = (intptr_t)addr;
-    len             = clamp_length(offset, len);
+    len = clamp_length(offset, len);
+#ifdef KK_GALAXY100_LITE
+    const uint8_t *source = buf;
+    for (size_t i = 0; i < len;) {
+        size_t position = NB_OF_PRIVATE_VAR + offset + i;
+        size_t count    = MIN(len - i, 2U - (position & 1U));
+        uint8_t *stored = &g_es_flash_eeprom_table[position];
+        if (memcmp(stored, source + i, count) != 0) {
+            memcpy(stored, source + i, count);
+            ee_write_variable(position);
+        }
+        i += count;
+    }
+#else
     if (len > 0) {
-        for(i = 0;i < len;i++)
-        {
-            if(g_es_flash_eeprom_table[i + offset + NB_OF_PRIVATE_VAR] != (*((uint8_t*)((uint32_t)buf) + i)))
-            {
-                g_es_flash_eeprom_table[i + offset + NB_OF_PRIVATE_VAR] = (*((uint8_t*)((uint32_t)buf) + i));
+        const uint8_t *source = buf;
+        uint8_t *stored = &g_es_flash_eeprom_table[offset + NB_OF_PRIVATE_VAR];
+        for (uint16_t i = 0; i < len; i++) {
+            if (stored[i] != source[i]) {
+                stored[i] = source[i];
                 ee_write_variable(i + offset + NB_OF_PRIVATE_VAR);
-
             }
         }
-        
-        memcpy(&g_es_flash_eeprom_table[offset + NB_OF_PRIVATE_VAR], buf, len);
+        memcpy(stored, buf, len);
     }
+#endif
 }
 
 void eeprom_read_block_user(void *buf, const void *addr, size_t len) {

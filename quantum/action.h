@@ -50,7 +50,7 @@ typedef struct keyrecord_t {
 #ifndef NO_ACTION_TAPPING
     tap_t tap;
 #endif
-#if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
+#if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE) || defined(KEYCODE_OVERRIDE_ENABLE)
     uint16_t keycode;
 #endif
 } keyrecord_t;

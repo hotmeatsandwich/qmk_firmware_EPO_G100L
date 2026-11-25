@@ -522,10 +522,26 @@ void send_raw_hid(uint8_t *data, uint8_t length) {
 
 void raw_hid_task(void) {
     uint8_t buffer[RAW_EPSIZE];
-    while (receive_report(USB_ENDPOINT_OUT_RAW, buffer, sizeof(buffer))) {
+    while (
+#ifdef RAW_HID_ORDERED_RESPONSES
+        usb_endpoint_in_is_inactive(&usb_endpoints_in[USB_ENDPOINT_IN_RAW]) &&
+#endif
+        receive_report(USB_ENDPOINT_OUT_RAW, buffer, sizeof(buffer))) {
         raw_hid_receive(buffer, sizeof(buffer));
     }
 }
+
+#ifdef RAW_HID_ORDERED_RESPONSES
+bool raw_hid_queues_idle(void) {
+    if (!usb_endpoint_in_is_inactive(&usb_endpoints_in[USB_ENDPOINT_IN_RAW])) {
+        return false;
+    }
+    osalSysLock();
+    bool idle = ibqIsEmptyI(&usb_endpoints_out[USB_ENDPOINT_OUT_RAW].ibqueue);
+    osalSysUnlock();
+    return idle;
+}
+#endif
 
 #endif
 

@@ -43,6 +43,7 @@ __attribute__((weak)) bool should_process_encoder(void);
 
 void encoder_init(void);
 bool encoder_task(void);
+bool encoder_queue_empty(void);
 bool encoder_queue_event(uint8_t index, bool clockwise);
 bool encoder_dequeue_event(uint8_t *index, bool *clockwise);
 

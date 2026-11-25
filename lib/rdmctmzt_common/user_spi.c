@@ -163,17 +163,21 @@ void es_spi_send_recv_by_dma(uint32_t num, uint8_t *rx_buf, uint8_t *tx_buf) {
     __enable_irq();
 }
 
-void Spi_Send_Commad(uint8_t Commad) {
+static bool spi_send_command(uint8_t Commad) {
     if (Init_Spi_Power_Up || Keyboard_Status.System_Work_Status) {
-        return;
+        return false;
     }
 
     uint16_t Time_Delay = 0;
     while (Spi_Send_Recv_Flg || (gpio_read_pin(ES_SPI_ACK_IO))) {
-        Time_Delay++;
-        if (Time_Delay >= 2000) {
-            Time_Delay = 0;
-            return;
+#ifdef KK_GALAXY100_LITE
+        // The caller keeps the latest battery update pending and retries it.
+        if (Commad == USER_BATTERY_DATA) {
+            return false;
+        }
+#endif
+        if (++Time_Delay >= 2000) {
+            return false;
         }
     }
 
@@ -210,9 +214,25 @@ void Spi_Send_Commad(uint8_t Commad) {
     }
 
     es_spi_send_recv_by_dma(USER_KEYBOARD_LENGTH, g_es_spi_rx_buf, g_es_spi_tx_buf);
+    return true;
 }
 
+void Spi_Send_Commad(uint8_t Commad) {
+    spi_send_command(Commad);
+}
+
+#ifdef KK_GALAXY100_LITE
+bool kk_spi_try_send_battery(void) {
+    return spi_send_command(USER_BATTERY_DATA);
+}
+#endif
+
 uint8_t Spi_Ack_Send_Commad(uint8_t Commad) {
+#ifdef KK_BACKLIGHT
+    if (Commad == USER_KEYBOARD_SLEEP && Keyboard_Info.Key_Mode != QMK_USB_MODE && !kk_backlight_radio_sleep_ready()) {
+        return SPI_BUSY;
+    }
+#endif
     if (Init_Spi_Power_Up) {
         return SPI_BUSY;
     }
@@ -240,10 +260,12 @@ void Get_Spi_Return_Data(uint8_t *Data) {
             Keyboard_Status.System_Work_Status = Data[3];
             if (Keyboard_Status.System_Work_Status) {
                 if (Keyboard_Info.Key_Mode != QMK_USB_MODE) {
-                    if (Usb_Change_Mode_Wakeup) {
-                        User_Sleep();
-                    } else {
+                    if (!Usb_Change_Mode_Wakeup) {
                         Keyboard_Status.System_Work_Status = 0;
+#ifndef KK_BACKLIGHT
+                    } else {
+                        User_Sleep();
+#endif
                     }
                 } else {
                     Keyboard_Status.System_Work_Status = 0;

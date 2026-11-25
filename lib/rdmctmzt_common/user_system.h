@@ -30,3 +30,11 @@ extern void User_Wakeup(void);
 extern void Init_Gpio_Infomation(void);
 extern void Board_Wakeup_Init(void);
 extern void es_chibios_user_idle_loop_hook(void);
+
+#ifdef KK_GALAXY100_LITE
+void kk_encoder_sleep_edge(uint32_t flags);
+#endif
+
+#ifdef KK_BACKLIGHT
+bool kk_backlight_radio_sleep_ready(void);
+#endif

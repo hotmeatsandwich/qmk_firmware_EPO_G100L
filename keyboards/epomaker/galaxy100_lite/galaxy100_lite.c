@@ -17,13 +17,15 @@
  */
 
 #include "keyboard_common.h"
+#include "encoder_gestures.h"
+#include "kk_via_settings.h"
 
 // ===========================================================================
 // Keyboard-specific data
 // ===========================================================================
 
-// Battery indicator LED indices (number row, keys 1 through =)
-const uint8_t Led_Batt_Index_Tab[BATTERY_LED_COUNT] = {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30};
+// Battery indicator LED indices (number row, keys 1 through 0)
+const uint8_t Led_Batt_Index_Tab[BATTERY_LED_COUNT] = {19, 20, 21, 22, 23, 24, 25, 26, 27, 28};
 
 // ============================================================================
 // LED Matrix Configuration (keyboard-specific)
@@ -64,6 +66,9 @@ led_config_t g_led_config = { {
 // ============================================================================
 
 bool rgb_matrix_indicators_advanced_kb(uint8_t led_min, uint8_t led_max) {
+#ifdef KK_INDICATOR_FADE
+    kk_indicators_begin_frame();
+#endif
     if (!rgb_matrix_indicators_advanced_user(led_min, led_max)) {
         return false;
     }
@@ -83,6 +88,12 @@ bool led_update_kb(led_t led_state) {
 }
 
 void housekeeping_task_kb(void) {
+#ifdef KK_VIA_SETTINGS
+    kk_via_settings_task();
+#endif
+#ifdef KK_GALAXY100_LITE
+    kk_encoder_gestures_task();
+#endif
     kb_housekeeping_task();
     housekeeping_task_user();
 }
@@ -92,6 +103,9 @@ void board_init(void) {
 }
 
 void keyboard_post_init_kb(void) {
+#ifdef KK_VIA_SETTINGS
+    kk_via_settings_load();
+#endif
     kb_keyboard_post_init();
     keyboard_post_init_user();
 }
@@ -100,5 +114,10 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
     if (!process_record_user(keycode, record)) {
         return false;
     }
+#ifdef KK_GALAXY100_LITE
+    if (!kk_encoder_gestures_process_record(keycode, record)) {
+        return false;
+    }
+#endif
     return kb_process_record_common(keycode, record);
 }

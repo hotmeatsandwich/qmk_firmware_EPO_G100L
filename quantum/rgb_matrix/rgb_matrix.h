@@ -147,6 +147,11 @@ enum rgb_matrix_effects {
 
 void eeconfig_update_rgb_matrix_default(void);
 void eeconfig_force_flush_rgb_matrix(void);
+#ifdef RGB_MATRIX_DEFER_EEPROM_WRITE
+void rgb_matrix_request_eeprom_save(void);
+bool rgb_matrix_has_pending_eeprom_write(void);
+void rgb_matrix_flush_pending_eeprom(void);
+#endif
 
 uint8_t rgb_matrix_map_row_column_to_led_kb(uint8_t row, uint8_t column, uint8_t *led_i);
 uint8_t rgb_matrix_map_row_column_to_led(uint8_t row, uint8_t column, uint8_t *led_i);

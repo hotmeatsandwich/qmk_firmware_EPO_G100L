@@ -16,6 +16,103 @@
  */
 #include "rdmctmzt_common.h"
 
+#ifdef KK_GALAXY100_LITE
+#    include "encoder_gestures.h"
+#endif
+
+#ifdef KK_GALAXY100_LITE
+#    include "encoder.h"
+#    define KK_ENCODER_WAKE_LINES (MD_EXTI_GPIO2 | MD_EXTI_GPIO10)
+static volatile bool encoder_wake_armed;
+static volatile bool encoder_wake_seen;
+
+void kk_encoder_sleep_edge(uint32_t flags) {
+    if (encoder_wake_armed && (flags & KK_ENCODER_WAKE_LINES)) {
+        encoder_wake_seen = true;
+        // The main loop is suspended. Reuse the QMK decoder and event queue.
+        encoder_driver_task();
+    }
+}
+
+static void kk_encoder_disarm_wake(void) {
+    __disable_irq();
+    md_exti_disable_it_gpio_pin(EXTI, KK_ENCODER_WAKE_LINES);
+    md_exti_disable_rising_edge_trigger(EXTI, KK_ENCODER_WAKE_LINES);
+    md_exti_disable_falling_edge_trigger(EXTI, KK_ENCODER_WAKE_LINES);
+    md_exti_clear_it_gpio_pin(EXTI, KK_ENCODER_WAKE_LINES);
+    NVIC_DisableIRQ((IRQn_Type)EXTI_2to3_IRQn);
+    NVIC_ClearPendingIRQ((IRQn_Type)EXTI_2to3_IRQn);
+    encoder_driver_task();
+    encoder_wake_armed = false;
+    __enable_irq();
+    if (encoder_wake_seen || !encoder_queue_empty()) {
+        last_matrix_activity_trigger();
+    }
+}
+#endif
+
+#define USB_SLEEP_DELAY_TICKS 800
+#define SLEEP_ACK_TIMEOUT_MS 100U
+
+#ifdef KK_BACKLIGHT
+#    define KK_BACKLIGHT_SOF_LOSS_TICKS 10U // The existing SOF poll runs every 10 ms.
+
+static volatile bool radio_sleep_ready;
+static uint32_t      radio_sleep_started_at;
+static bool          usb_sof_seen;
+
+static bool kk_backlight_prepare_usb_sleep(bool sof_received) {
+    if (sof_received) {
+        usb_sof_seen      = true;
+        Usb_Suspend_Delay = 0;
+        kk_backlight_set_sleeping(false);
+        return false;
+    }
+
+    // Give USB time to enumerate if the host has not sent any SOF yet.
+    if (!usb_sof_seen && !Usb_Change_Mode_Wakeup) {
+        return false;
+    }
+
+    if (Usb_Suspend_Delay < KK_BACKLIGHT_SOF_LOSS_TICKS) {
+        Usb_Suspend_Delay++;
+        return false;
+    }
+    return kk_backlight_set_sleeping(true);
+}
+
+bool kk_backlight_radio_sleep_ready(void) {
+    return radio_sleep_ready;
+}
+
+static void kk_backlight_cancel_radio_sleep(void) {
+    if (radio_sleep_ready) {
+        User_Wakeup();
+    } else {
+        Keyboard_Status.System_Work_Status = 0;
+    }
+}
+
+static bool kk_backlight_prepare_radio_sleep(void) {
+    // Keep queued input available and discard a request from the previous mode.
+    bool requested = Keyboard_Status.System_Work_Status && Keyboard_Status.System_Work_Mode == Keyboard_Info.Key_Mode && last_input_activity_elapsed() >= KK_BACKLIGHT_FADE_MS;
+    bool timed_out = radio_sleep_ready && !Keyboard_Status.System_Sleep_Mode && timer_elapsed32(radio_sleep_started_at) >= SLEEP_ACK_TIMEOUT_MS;
+    if (!requested || timed_out) {
+        kk_backlight_cancel_radio_sleep();
+        kk_backlight_set_sleeping(false);
+        return false;
+    }
+
+    if (!radio_sleep_ready && kk_backlight_set_sleeping(true) && !rgb_matrix_dma_is_busy()) {
+        radio_sleep_started_at = timer_read32();
+        User_Sleep();
+        radio_sleep_ready = true;
+    }
+
+    return radio_sleep_ready && Keyboard_Status.System_Sleep_Mode;
+}
+#endif
+
 void es_mcu_reset(void) {
     uint16_t Time_Delay = 0;
     while (Spi_Send_Recv_Flg || (gpio_read_pin(ES_SPI_ACK_IO)) || Reset_Save_Flash) {
@@ -82,6 +179,9 @@ void User_Systime_Deinit(void) {
 }
 
 void User_Sleep(void) {
+#ifdef KK_BACKLIGHT
+    Led_Off_Start = true;
+#endif
     gpio_set_pin_output(ES_LED_POWER_IO);
     gpio_write_pin_low(ES_LED_POWER_IO);
 
@@ -93,8 +193,22 @@ void User_Sleep(void) {
 }
 
 void User_Wakeup(void) {
+#ifdef KK_BACKLIGHT
+    __disable_irq();
+    radio_sleep_ready                  = false;
+    Keyboard_Status.System_Work_Status = 0;
+    Keyboard_Status.System_Sleep_Mode  = 0;
+    // Discard a timed-out sleep reply without interrupting other SPI traffic.
+    if (Spi_Send_Recv_Flg && Send_Key_Type == SPI_ACK && g_es_spi_tx_buf[2] == USER_KEYBOARD_SLEEP) {
+        Spi_Send_Recv_Flg = 0;
+    }
+    gpio_write_pin_high(ES_SDB_POWER_IO);
+#endif
     gpio_set_pin_output(ES_WUKEUP_IO);
     gpio_write_pin_high(ES_WUKEUP_IO);
+#ifdef KK_BACKLIGHT
+    __enable_irq();
+#endif
 }
 
 void Init_Gpio_Infomation(void) {
@@ -132,7 +246,13 @@ void Init_Gpio_Infomation(void) {
     gpiox.Function   = MD_GPIO_AF0;
     md_gpio_init(GPIOA, &gpiox);
 
-    md_exti_set_interrupt_pin_0_7(EXTI, MD_EXTI_GPIOA4);
+    uint32_t exti_pins = MD_EXTI_GPIOA4;
+#ifdef KK_GALAXY100_LITE
+    if (encoder_wake_armed) {
+        exti_pins |= MD_EXTI_GPIOB2;
+    }
+#endif
+    md_exti_set_interrupt_pin_0_7(EXTI, exti_pins);
     md_exti_enable_it_gpio_pin(EXTI, MD_EXTI_GPIO4);
     md_exti_enable_rising_edge_trigger(EXTI, MD_EXTI_GPIO4);
     md_exti_enable_falling_edge_trigger(EXTI, MD_EXTI_GPIO4);
@@ -142,6 +262,19 @@ void Init_Gpio_Infomation(void) {
 }
 
 void Board_Wakeup_Init(void) {
+#ifdef KK_GALAXY100_LITE
+    kk_encoder_gestures_reset();
+#endif
+#ifdef KK_BACKLIGHT
+    radio_sleep_ready      = false;
+    usb_sof_seen           = false;
+    Usb_Suspend_Delay      = 0;
+    Usb_Dis_Connect        = false;
+    g_usb_sof_frame_id_last = g_usb_sof_frame_id;
+    Led_Power_Up_Delay      = 0;
+    kk_backlight_reset();
+#endif
+
     /*Using USB_SOF to calibrate the internal clock*/
     md_rcu_enable_csu(RCU);
     CSU->CON |= CSU_CON_AUTOEN_MSK;
@@ -187,51 +320,73 @@ void es_chibios_user_idle_loop_hook(void) {
     Check_Mode_Switch_Changed();
 
     if (Keyboard_Info.Key_Mode == QMK_USB_MODE) {
-        if (Usb_Dis_Connect) {
-            Usb_Dis_Connect = false;
-
-            if ((g_usb_sof_frame_id != g_usb_sof_frame_id_last) || (Usb_Change_Mode_Wakeup == false)) { // 正常通信
-                g_usb_sof_frame_id_last = g_usb_sof_frame_id;
-                Usb_Suspend_Delay       = 0;
-                return;
-            } else {
-                Usb_If_Ok_Led = false;
-                Usb_Suspend_Delay++;
-                if (Usb_Suspend_Delay < 800) { // 8S
-                    return;
-                }
-                Usb_Suspend_Delay = 0;
-
-                while ((DMA1->CHENSET) & 0x4)
-                    ;
-
-                User_Sleep();
-                uint32_t delay = 0;
-                while (SPI_IDLE != Spi_Ack_Send_Commad(USER_KEYBOARD_SLEEP)) {
-                    delay++;
-                    if (delay >= 3600) {
-                        delay = 0;
-                        User_Wakeup();
-                        Usb_Suspend_Delay = 6000;
-                        return;
-                    }
-                }
-
-                delay = 0;
-                while (Spi_Send_Recv_Flg) {
-                    delay++;
-                    if (delay >= 36000) {
-                        delay = 0;
-                        User_Wakeup();
-                        return;
-                    }
-                }
-            }
-        } else {
+#ifdef KK_BACKLIGHT
+        kk_backlight_cancel_radio_sleep();
+#endif
+        if (!Usb_Dis_Connect) {
             return;
         }
+        Usb_Dis_Connect = false;
+
+#ifdef KK_BACKLIGHT
+        uint16_t sof_frame      = g_usb_sof_frame_id;
+        bool     sof_received   = sof_frame != g_usb_sof_frame_id_last;
+        g_usb_sof_frame_id_last = sof_frame;
+        if (!kk_backlight_prepare_usb_sleep(sof_received)) {
+            return;
+        }
+        Usb_If_Ok_Led = false;
+#else
+        if (g_usb_sof_frame_id != g_usb_sof_frame_id_last || !Usb_Change_Mode_Wakeup) {
+            g_usb_sof_frame_id_last = g_usb_sof_frame_id;
+            Usb_Suspend_Delay = 0;
+            return;
+        }
+        Usb_If_Ok_Led = false;
+        if (++Usb_Suspend_Delay < USB_SLEEP_DELAY_TICKS) {
+            return;
+        }
+        Usb_Suspend_Delay = 0;
+#endif
+
+#ifdef KK_GALAXY100_LITE
+        if (rgb_matrix_dma_is_busy()) {
+            return;
+        }
+#else
+        while ((DMA1->CHENSET) & 0x4)
+            ;
+#endif
+
+        User_Sleep();
+        uint32_t delay = 0;
+        while (SPI_IDLE != Spi_Ack_Send_Commad(USER_KEYBOARD_SLEEP)) {
+            delay++;
+            if (delay >= 3600) {
+                User_Wakeup();
+#ifndef KK_BACKLIGHT
+                Usb_Suspend_Delay = 6000;
+#endif
+                return;
+            }
+        }
+
+        delay = 0;
+        while (Spi_Send_Recv_Flg) {
+            delay++;
+            if (delay >= 36000) {
+                User_Wakeup();
+                return;
+            }
+        }
     } else {
+#ifdef KK_BACKLIGHT
+        usb_sof_seen      = false;
+        Usb_Suspend_Delay = 0;
+        if (!kk_backlight_prepare_radio_sleep()) {
+#else
         if (!Keyboard_Status.System_Sleep_Mode) { // 无线休眠
+#endif
             return;
         }
     }
@@ -246,11 +401,21 @@ void es_chibios_user_idle_loop_hook(void) {
     while (!gpio_read_pin(ES_SPI_ACK_IO)) {
         wait_ms(1);
         delay++;
-        if (delay >= 100) {
-            delay = 0;
+        if (delay >= SLEEP_ACK_TIMEOUT_MS) {
+#ifdef KK_BACKLIGHT
+            User_Wakeup();
+#endif
             return;
         }
     }
+
+#ifdef KK_BACKLIGHT
+    if (Keyboard_Info.Key_Mode == QMK_USB_MODE && g_usb_sof_frame_id != g_usb_sof_frame_id_last) {
+        User_Wakeup();
+        kk_backlight_set_sleeping(false);
+        return;
+    }
+#endif
 
     gpio_set_pin_input_high(ES_SPI_ACK_IO); // ACK_IO
 
@@ -308,8 +473,22 @@ void es_chibios_user_idle_loop_hook(void) {
     GPIOB->AFL &= 0xFF0FFFFF; // 选择复用功能
     GPIOB->AFL |= 0x00300000; // 选择复用模式 NABLE:1 DISABLE:0
 
-    md_exti_set_interrupt_pin_0_7(EXTI, MD_EXTI_GPIOB0 | MD_EXTI_GPIOB1 | MD_EXTI_GPIOB3 | MD_EXTI_GPIOB4 | MD_EXTI_GPIOC5 | MD_EXTI_GPIOB6 | MD_EXTI_GPIOB7);
-    // md_exti_set_interrupt_pin_8_15(EXTI, MD_EXTI_GPIOB10);
+    uint32_t wake_pins = MD_EXTI_GPIOB0 | MD_EXTI_GPIOB1 | MD_EXTI_GPIOB3 | MD_EXTI_GPIOB4 | MD_EXTI_GPIOC5 | MD_EXTI_GPIOB6 | MD_EXTI_GPIOB7;
+#ifdef KK_GALAXY100_LITE
+    if (Keyboard_Info.Key_Mode != QMK_USB_MODE) {
+        encoder_wake_seen  = false;
+        encoder_wake_armed = true;
+        wake_pins |= MD_EXTI_GPIOB2;
+        Gpio_Enable |= KK_ENCODER_WAKE_LINES;
+        Gpio_Status_H |= KK_ENCODER_WAKE_LINES;
+        Gpio_Status_L |= KK_ENCODER_WAKE_LINES;
+        md_exti_set_interrupt_pin_8_15(EXTI, MD_EXTI_GPIOB10);
+        md_exti_clear_it_gpio_pin(EXTI, KK_ENCODER_WAKE_LINES);
+        // Both encoder IRQs write to the same decoder and must not preempt each other.
+        NVIC_SetPriority(EXTI_2to3_IRQn, 3);
+    }
+#endif
+    md_exti_set_interrupt_pin_0_7(EXTI, wake_pins);
 
     md_exti_enable_it_gpio_pin(EXTI, Gpio_Enable);            /*0~7 , 10*/
     md_exti_enable_rising_edge_trigger(EXTI, Gpio_Status_H);  /*0~7 , 10*/
@@ -347,7 +526,19 @@ void es_chibios_user_idle_loop_hook(void) {
         md_rcu_disable_usb(RCU);
         md_rcu_disable_hrc48(RCU);
 
+#ifdef KK_GALAXY100_LITE
+        // Pending IRQs wake Cortex-M0 even with PRIMASK set. Mask the handler
+        // across the check and WFI so an encoder edge cannot be lost here.
+        __disable_irq();
+        encoder_driver_task();
+        if (!encoder_wake_seen && encoder_queue_empty()) {
+            __DSB();
+            __WFI();
+        }
+        __enable_irq();
+#else
         __WFI(); // Wait For Interrupt
+#endif
 
         /*唤醒*/
         md_rcu_enable_hrc48(RCU);
@@ -377,8 +568,18 @@ void es_chibios_user_idle_loop_hook(void) {
     }
 
     NVIC_DisableIRQ((IRQn_Type)EXTI_0to1_IRQn);  /* EXTI_0to1_IRQn interrupt */
-    NVIC_DisableIRQ((IRQn_Type)EXTI_2to3_IRQn);  /* EXTI_2to3_IRQn interrupt */
-    NVIC_DisableIRQ((IRQn_Type)EXTI_4to15_IRQn); /* EXTI_4to15_IRQn interrupt */
+#ifdef KK_GALAXY100_LITE
+    if (encoder_wake_armed) {
+        // Keep capturing both encoder lines until the regular scan can resume.
+        uint32_t matrix_wake_lines = Gpio_Enable & ~KK_ENCODER_WAKE_LINES;
+        md_exti_disable_it_gpio_pin(EXTI, matrix_wake_lines);
+        md_exti_clear_it_gpio_pin(EXTI, matrix_wake_lines);
+    } else
+#endif
+    {
+        NVIC_DisableIRQ((IRQn_Type)EXTI_2to3_IRQn);  /* EXTI_2to3_IRQn interrupt */
+        NVIC_DisableIRQ((IRQn_Type)EXTI_4to15_IRQn); /* EXTI_4to15_IRQn interrupt */
+    }
     NVIC_DisableIRQ((IRQn_Type)GP16C4T2_IRQn);   /* GP16C4T2_IRQHandler */
 
     // 唤醒源配置输出高电平
@@ -390,7 +591,12 @@ void es_chibios_user_idle_loop_hook(void) {
     while (delay--)
         ;
 
-    uint8_t Row_Count = 0, Col_Count = 0;
+#ifdef KK_BACKLIGHT
+    uint8_t Row_Count = MATRIX_ROWS;
+#else
+    uint8_t Row_Count = 0;
+#endif
+    uint8_t Col_Count = 0;
     for (i = 0; i < MATRIX_ROWS; i++) {
         if ((1 << i) & Sleep_Status) {
             for (uint8_t j = 0; j < MATRIX_COLS; j++) {
@@ -440,16 +646,35 @@ void es_chibios_user_idle_loop_hook(void) {
             }
         }
 
-        keypos_t pos = {.col = Col_Count, .row = Row_Count};
-        uint16_t keycode = keymap_key_to_keycode(0, pos);
-
-        register_code(keycode);
-        wait_ms(2);
-        unregister_code(keycode);
-        wait_ms(2);
+        if (Row_Count < MATRIX_ROWS) {
+            keypos_t pos     = {.col = Col_Count, .row = Row_Count};
+            uint16_t keycode = keymap_key_to_keycode(0, pos);
+#ifdef KK_GALAXY100_LITE
+            bool replay = true;
+            if (kk_encoder_gesture_button(pos)) {
+                // Only replay the tap if the encoder button was released during wake.
+                gpio_write_pin_low(User_Pin_Tab_Col[Col_Count]);
+                wait_us(5);
+                replay = gpio_read_pin(User_Pin_Tab_Row[Row_Count]);
+                gpio_write_pin_high(User_Pin_Tab_Col[Col_Count]);
+            }
+            if (replay)
+#endif
+            {
+                register_code(keycode);
+                wait_ms(2);
+                unregister_code(keycode);
+                wait_ms(2);
+            }
+        }
     }
 
     Board_Wakeup_Init();
+#ifdef KK_GALAXY100_LITE
+    if (encoder_wake_armed) {
+        kk_encoder_disarm_wake();
+    }
+#endif
 }
 
 // Mode switch detection implementation
@@ -478,31 +703,36 @@ uint8_t Read_Mode_Switch_Position(void) {
 void Check_Mode_Switch_Changed(void) {
     uint8_t current_position = Read_Mode_Switch_Position();
 
+#ifdef KK_GALAXY100_LITE
+    if (current_position != Last_Mode_Switch_Position) {
+        Last_Mode_Switch_Position  = current_position;
+        Mode_Switch_Debounce_Timer = timer_read();
+        return;
+    }
+    if (current_position != Current_Mode_Switch_Position && timer_elapsed(Mode_Switch_Debounce_Timer) >= MODE_SWITCH_DEBOUNCE_TIME) {
+        Current_Mode_Switch_Position = current_position;
+        Handle_Mode_Switch_Change(current_position);
+    }
+#else
     if (current_position != Current_Mode_Switch_Position) {
         if (!Mode_Switch_Changed) {
-            // Start debounce timer
             Mode_Switch_Changed          = true;
             Mode_Switch_Debounce_Timer   = timer_read();
             Last_Mode_Switch_Position    = Current_Mode_Switch_Position;
             Current_Mode_Switch_Position = current_position;
-        } else {
-            // Check if debounce time has passed
-            if (timer_elapsed(Mode_Switch_Debounce_Timer) >= MODE_SWITCH_DEBOUNCE_TIME) {
-                // Confirm the change is stable
-                if (current_position == Current_Mode_Switch_Position) {
-                    Handle_Mode_Switch_Change(Current_Mode_Switch_Position);
-                    Mode_Switch_Changed = false;
-                } else {
-                    // Reading changed again, restart debounce
-                    Current_Mode_Switch_Position = current_position;
-                    Mode_Switch_Debounce_Timer   = timer_read();
-                }
+        } else if (timer_elapsed(Mode_Switch_Debounce_Timer) >= MODE_SWITCH_DEBOUNCE_TIME) {
+            if (current_position == Current_Mode_Switch_Position) {
+                Handle_Mode_Switch_Change(Current_Mode_Switch_Position);
+                Mode_Switch_Changed = false;
+            } else {
+                Current_Mode_Switch_Position = current_position;
+                Mode_Switch_Debounce_Timer   = timer_read();
             }
         }
     } else {
-        // Position is stable, reset debounce
         Mode_Switch_Changed = false;
     }
+#endif
 }
 
 void Handle_Mode_Switch_Change(uint8_t new_position) {
@@ -532,6 +762,9 @@ void Handle_Mode_Switch_Change(uint8_t new_position) {
 
     // Only switch if different from current mode
     if ((target_mode != Keyboard_Info.Key_Mode) || (target_mode == QMK_BLE_MODE && target_channel != Keyboard_Info.Ble_Channel)) {
+#ifdef KK_BACKLIGHT
+        kk_backlight_cancel_radio_sleep();
+#endif
         if (target_mode == QMK_USB_MODE) {
             // Switch to USB mode
             Keyboard_Info.Key_Mode = QMK_USB_MODE;

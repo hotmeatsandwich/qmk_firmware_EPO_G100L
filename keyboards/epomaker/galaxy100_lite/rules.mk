@@ -29,11 +29,12 @@ EEPROM_CUSTOM = custom
 EEPROM_DRIVER = custom
 NO_USB_STARTUP_CHECK = yes
 BLUETOOTH_CUSTOM = yes
+LTO_ENABLE = yes
 
 DEBOUNCE_TYPE = asym_eager_defer_pk
 
 # RGB Matrix is configured in keyboard.json with custom driver
-# The driver implementation is in user_led_custom.c
+# This board uses its own PWM DMA driver.
 # Explicitly define RGB_MATRIX_ENABLE for VIA compatibility
 OPT_DEFS += -DRGB_MATRIX_ENABLE
 
@@ -42,11 +43,15 @@ VPATH += lib/rdmctmzt_common
 EXTRAINCDIRS += $(TOP_DIR)/lib/rdmctmzt_common
 SRC += rdmctmzt_common.c \
 	keyboard_common.c \
+	indicator_fade.c \
+	encoder_gestures.c \
+	kk_via_settings.c \
+	quantum/crc.c \
 	three_mode.c \
 	user_battery.c \
 	user_eeprom.c \
 	user_emi.c \
-	user_led_custom.c \
+	galaxy100_lite_rgb.c \
 	user_spi.c \
 	user_system.c
 

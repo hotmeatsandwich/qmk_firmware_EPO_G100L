@@ -13,7 +13,7 @@
                         {
                             "label": "Brightness",
                             "type": "range",
-                            "options": [0, 180],
+                            "options": [0, 255],
                             "content": ["id_qmk_rgb_matrix_brightness", 3, 1]
                         },
                         {
@@ -86,6 +86,367 @@
                             "label": "Color",
                             "type": "color",
                             "content": ["id_qmk_rgb_matrix_color", 3, 4]
+                        },
+                        {
+                            "label": "Fade",
+                            "type": "range",
+                            "options": [0, 2000],
+                            "content": ["id_kk_fade", 7, 1]
+                        }
+                    ]
+                },
+                {
+                    "label": "Lock Indicators",
+                    "content": [
+                        {
+                            "showIf": "{id_firmware_version} >= 2",
+                            "label": "Indicator Fade",
+                            "type": "range",
+                            "options": [0, 2000],
+                            "content": ["id_kk_indicator_fade", 7, 3]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Caps Lock",
+                            "type": "toggle",
+                            "content": ["id_kk_caps_enabled", 8, 3]
+                        },
+                        {
+                            "showIf": "{id_kk_caps_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Caps Color",
+                                    "type": "color",
+                                    "content": ["id_kk_caps_color", 8, 2]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Caps Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_caps_brightness", 8, 1]
+                                }
+                            ]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Num Lock",
+                            "type": "toggle",
+                            "content": ["id_kk_num_enabled", 8, 6]
+                        },
+                        {
+                            "showIf": "{id_kk_num_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Num Color",
+                                    "type": "color",
+                                    "content": ["id_kk_num_color", 8, 5]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Num Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_num_brightness", 8, 4]
+                                }
+                            ]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Win Lock",
+                            "type": "toggle",
+                            "content": ["id_kk_win_enabled", 8, 9]
+                        },
+                        {
+                            "showIf": "{id_kk_win_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Win Color",
+                                    "type": "color",
+                                    "content": ["id_kk_win_color", 8, 8]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Win Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_win_brightness", 8, 7]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "label": "Mode Indicators",
+                    "content": [
+                        {
+                            "label": "USB",
+                            "type": "toggle",
+                            "content": ["id_kk_usb_enabled", 8, 24]
+                        },
+                        {
+                            "showIf": "{id_kk_usb_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 USB Color",
+                                    "type": "color",
+                                    "content": ["id_kk_usb_color", 8, 23]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 USB Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_usb_brightness", 8, 22]
+                                }
+                            ]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "2.4 GHz",
+                            "type": "toggle",
+                            "content": ["id_kk_24g_enabled", 8, 21]
+                        },
+                        {
+                            "showIf": "{id_kk_24g_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 2.4 GHz Color",
+                                    "type": "color",
+                                    "content": ["id_kk_24g_color", 8, 20]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 2.4 GHz Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_24g_brightness", 8, 19]
+                                }
+                            ]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Bluetooth 1",
+                            "type": "toggle",
+                            "content": ["id_kk_ble1_enabled", 8, 12]
+                        },
+                        {
+                            "showIf": "{id_kk_ble1_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 BT1 Color",
+                                    "type": "color",
+                                    "content": ["id_kk_ble1_color", 8, 11]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 BT1 Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_ble1_brightness", 8, 10]
+                                }
+                            ]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Bluetooth 2",
+                            "type": "toggle",
+                            "content": ["id_kk_ble2_enabled", 8, 15]
+                        },
+                        {
+                            "showIf": "{id_kk_ble2_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 BT2 Color",
+                                    "type": "color",
+                                    "content": ["id_kk_ble2_color", 8, 14]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 BT2 Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_ble2_brightness", 8, 13]
+                                }
+                            ]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Bluetooth 3",
+                            "type": "toggle",
+                            "content": ["id_kk_ble3_enabled", 8, 18]
+                        },
+                        {
+                            "showIf": "{id_kk_ble3_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 BT3 Color",
+                                    "type": "color",
+                                    "content": ["id_kk_ble3_color", 8, 17]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 BT3 Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_ble3_brightness", 8, 16]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "label": "Status Bars",
+                    "content": [
+                        {
+                            "showIf": "{id_firmware_version} >= 1",
+                            "label": "Battery Level",
+                            "type": "label",
+                            "content": ["id_kk_battery_level", 8, 42]
+                        },
+                        {
+                            "label": "Battery",
+                            "type": "toggle",
+                            "content": ["id_kk_battery_enabled", 8, 27]
+                        },
+                        {
+                            "showIf": "{id_kk_battery_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 High / Charged Color",
+                                    "type": "color",
+                                    "content": ["id_kk_battery_color", 8, 26]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Medium Color",
+                                    "type": "color",
+                                    "content": ["id_kk_battery_medium_color", 8, 41]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Low Color",
+                                    "type": "color",
+                                    "content": ["id_kk_battery_low_color", 8, 40]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Battery Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_battery_brightness", 8, 25]
+                                }
+                            ]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Brightness",
+                            "type": "toggle",
+                            "content": ["id_kk_brightness_enabled", 8, 36]
+                        },
+                        {
+                            "showIf": "{id_kk_brightness_enabled} == 1",
+                            "content": [
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Scale Color",
+                                    "type": "color",
+                                    "content": ["id_kk_brightness_color", 8, 35]
+                                },
+                                {
+                                    "label": "\u00a0\u00a0\u00a0\u21b3 Scale Brightness",
+                                    "type": "range",
+                                    "options": [0, 255],
+                                    "content": ["id_kk_brightness_brightness", 8, 34]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "label": "Gestures",
+            "content": [
+                {
+                    "label": "Encoder",
+                    "content": [
+                        {
+                            "label": "Double Click",
+                            "type": "keycode",
+                            "content": ["id_kk_gesture_double_click", 6, 2]
+                        },
+                        {
+                            "label": "Triple Click",
+                            "type": "keycode",
+                            "content": ["id_kk_gesture_triple_click", 6, 3]
+                        },
+                        {
+                            "label": "Hold",
+                            "type": "keycode",
+                            "content": ["id_kk_gesture_hold", 6, 1]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Hold + \u21ba",
+                            "type": "keycode",
+                            "content": ["id_kk_gesture_hold_ccw", 6, 4]
+                        },
+                        {
+                            "label": "Hold + \u21bb",
+                            "type": "keycode",
+                            "content": ["id_kk_gesture_hold_cw", 6, 5]
+                        },
+                        {
+                            "label": "Click + Hold + \u21ba",
+                            "type": "keycode",
+                            "content": ["id_kk_gesture_double_hold_ccw", 6, 6]
+                        },
+                        {
+                            "label": "Click + Hold + \u21bb",
+                            "type": "keycode",
+                            "content": ["id_kk_gesture_double_hold_cw", 6, 7]
+                        },
+                        {
+                            "label": "\u2800",
+                            "type": "label",
+                            "content": ["\u00a0"]
+                        },
+                        {
+                            "label": "Click Window (ms)",
+                            "type": "range",
+                            "options": [50, 1000],
+                            "content": ["id_kk_gesture_click_window", 7, 5]
+                        },
+                        {
+                            "label": "Hold Time (ms)",
+                            "type": "range",
+                            "options": [100, 2000],
+                            "content": ["id_kk_gesture_hold_time", 7, 6]
                         }
                     ]
                 }
