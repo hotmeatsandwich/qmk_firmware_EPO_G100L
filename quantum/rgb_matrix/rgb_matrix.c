@@ -38,6 +38,14 @@ __attribute__((weak)) rgb_t rgb_matrix_hsv_to_rgb(hsv_t hsv) {
     return hsv_to_rgb(hsv);
 }
 
+#ifdef RGB_MATRIX_DRIVER_BRIGHTNESS_TRANSITION_MS
+// The effect implementations read the settings captured at the start of the frame.
+static rgb_config_t rgb_frame_config;
+#    define rgb_matrix_config rgb_frame_config
+#else
+#    define rgb_frame_config rgb_matrix_config
+#endif
+
 // Generic effect runners
 #include "rgb_matrix_runners.inc"
 
@@ -59,6 +67,9 @@ __attribute__((weak)) rgb_t rgb_matrix_hsv_to_rgb(hsv_t hsv) {
 
 #undef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
 #undef RGB_MATRIX_EFFECT
+#ifdef RGB_MATRIX_DRIVER_BRIGHTNESS_TRANSITION_MS
+#    undef rgb_matrix_config
+#endif
 // -----End rgb effect includes macros-------
 // ------------------------------------------
 
@@ -102,6 +113,20 @@ EECONFIG_DEBOUNCE_HELPER(rgb_matrix, rgb_matrix_config);
 void eeconfig_force_flush_rgb_matrix(void) {
     eeconfig_flush_rgb_matrix(true);
 }
+
+#ifdef RGB_MATRIX_DEFER_EEPROM_WRITE
+void rgb_matrix_request_eeprom_save(void) {
+    eeconfig_flag_rgb_matrix(true);
+}
+
+bool rgb_matrix_has_pending_eeprom_write(void) {
+    return dirty_rgb_matrix;
+}
+
+void rgb_matrix_flush_pending_eeprom(void) {
+    eeconfig_flush_rgb_matrix(false);
+}
+#endif
 
 void eeconfig_update_rgb_matrix_default(void) {
     dprintf("eeconfig_update_rgb_matrix_default\n");
@@ -297,7 +322,9 @@ static void rgb_task_timers(void) {
 }
 
 static void rgb_task_sync(void) {
+#ifndef RGB_MATRIX_DEFER_EEPROM_WRITE
     eeconfig_flush_rgb_matrix(false);
+#endif
     // next task
     if (sync_timer_elapsed32(g_rgb_timer) >= RGB_MATRIX_LED_FLUSH_LIMIT) rgb_task_state = STARTING;
 }
@@ -308,6 +335,11 @@ static void rgb_task_start(void) {
 
     // update double buffers
     g_rgb_timer = rgb_timer_buffer;
+#ifdef RGB_MATRIX_DRIVER_BRIGHTNESS_TRANSITION_MS
+    rgb_frame_config = rgb_matrix_config;
+    // The driver scales the rendered frame, including effects that retain pixels across frames.
+    rgb_frame_config.hsv.v = RGB_MATRIX_MAXIMUM_BRIGHTNESS;
+#endif
 #ifdef RGB_MATRIX_KEYREACTIVE_ENABLED
     g_last_hit_tracker = last_hit_buffer;
 #endif // RGB_MATRIX_KEYREACTIVE_ENABLED
@@ -321,7 +353,7 @@ static void rgb_task_start(void) {
                              false;
 
     // Set effect to be renedered
-    rgb_current_effect = suspend_backlight || !rgb_matrix_config.enable ? 0 : rgb_matrix_config.mode;
+    rgb_current_effect = suspend_backlight || !rgb_frame_config.enable ? 0 : rgb_frame_config.mode;
 
     // next task
     rgb_task_state = RENDERING;
@@ -329,9 +361,9 @@ static void rgb_task_start(void) {
 
 static void rgb_task_render(uint8_t effect) {
     bool rendering         = false;
-    rgb_effect_params.init = (effect != rgb_last_effect) || (rgb_matrix_config.enable != rgb_last_enable);
-    if (rgb_effect_params.flags != rgb_matrix_config.flags) {
-        rgb_effect_params.flags = rgb_matrix_config.flags;
+    rgb_effect_params.init = (effect != rgb_last_effect) || (rgb_frame_config.enable != rgb_last_enable);
+    if (rgb_effect_params.flags != rgb_frame_config.flags) {
+        rgb_effect_params.flags = rgb_frame_config.flags;
         rgb_matrix_set_color_all(0, 0, 0);
     }
 
@@ -399,7 +431,7 @@ static void rgb_task_render(uint8_t effect) {
 static void rgb_task_flush(uint8_t effect) {
     // update last trackers after the first full render so we can init over several frames
     rgb_last_effect = effect;
-    rgb_last_enable = rgb_matrix_config.enable;
+    rgb_last_enable = rgb_frame_config.enable;
 
     // update pwm buffers
     rgb_matrix_update_pwm_buffers();

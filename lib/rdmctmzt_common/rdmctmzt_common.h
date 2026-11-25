@@ -291,7 +291,9 @@ extern uint8_t  Temp_System_Led_Status;
 // Mode switch detection variables
 extern uint8_t  Current_Mode_Switch_Position;
 extern uint8_t  Last_Mode_Switch_Position;
+#ifndef KK_GALAXY100_LITE
 extern bool     Mode_Switch_Changed;
+#endif
 extern uint16_t Mode_Switch_Debounce_Timer;
 
 // Mode indicator variables

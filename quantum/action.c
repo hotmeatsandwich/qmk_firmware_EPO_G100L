@@ -304,7 +304,7 @@ void process_record(keyrecord_t *record) {
 }
 
 void process_record_handler(keyrecord_t *record) {
-#if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
+#if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE) || defined(KEYCODE_OVERRIDE_ENABLE)
     action_t action;
     if (record->keycode) {
         action = action_for_keycode(record->keycode);
@@ -1152,7 +1152,7 @@ bool is_tap_record(keyrecord_t *record) {
         return false;
     }
 
-#if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
+#if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE) || defined(KEYCODE_OVERRIDE_ENABLE)
     action_t action;
     if (record->keycode) {
         action = action_for_keycode(record->keycode);

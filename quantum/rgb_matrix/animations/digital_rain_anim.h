@@ -27,7 +27,11 @@ bool DIGITAL_RAIN(effect_params_t* params) {
     decay++;
     for (uint8_t col = 0; col < MATRIX_COLS; col++) {
         for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+#ifdef RGB_DIGITAL_RAIN_USE_QMK_RANDOM
+            if (row == 0 && drop == 0 && random16() < (UINT16_MAX + 1UL) / RGB_DIGITAL_RAIN_DROPS) {
+#else
             if (row == 0 && drop == 0 && rand() < RAND_MAX / RGB_DIGITAL_RAIN_DROPS) {
+#endif
                 // top row, pixels have just fallen and we're
                 // making a new rain drop in this column
                 g_rgb_frame_buffer[row][col] = max_intensity;

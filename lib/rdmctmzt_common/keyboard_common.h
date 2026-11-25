@@ -144,6 +144,9 @@ void kb_toggle_all_leds(void);
 
 // Common RGB matrix indicators handler
 bool kb_rgb_matrix_indicators_common(uint8_t led_min, uint8_t led_max);
+#ifdef KK_BRIGHTNESS_INDICATOR_MS
+void kb_show_brightness_preview(void);
+#endif
 
 // Common USB device state change handler
 void kb_notify_usb_device_state_change(struct usb_device_state usb_device_state);

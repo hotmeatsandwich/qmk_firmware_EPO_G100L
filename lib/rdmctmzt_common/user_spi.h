@@ -92,5 +92,8 @@ extern void es_ble_spi_init(void);
 extern void es_ble_spi_deinit(void);
 extern void es_spi_send_recv_by_dma(uint32_t num, uint8_t *rx_buf, uint8_t *tx_buf);
 extern void Spi_Send_Commad(uint8_t Commad);
+#ifdef KK_GALAXY100_LITE
+bool kk_spi_try_send_battery(void);
+#endif
 extern uint8_t Spi_Ack_Send_Commad(uint8_t Commad);
 extern void Get_Spi_Return_Data(uint8_t *Data);

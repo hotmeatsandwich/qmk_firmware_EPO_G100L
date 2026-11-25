@@ -743,7 +743,11 @@ void via_qmk_rgb_matrix_set_value(uint8_t *data) {
 }
 
 void via_qmk_rgb_matrix_save(void) {
+#ifdef RGB_MATRIX_DEFER_EEPROM_WRITE
+    rgb_matrix_request_eeprom_save();
+#else
     eeconfig_force_flush_rgb_matrix();
+#endif
 }
 
 #endif // RGB_MATRIX_ENABLE

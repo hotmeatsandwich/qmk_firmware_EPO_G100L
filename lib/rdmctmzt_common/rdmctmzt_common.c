@@ -72,7 +72,9 @@ uint16_t Func_Time_3s_Count     = 0;
 // Mode switch detection variables
 uint8_t  Current_Mode_Switch_Position = MODE_SWITCH_USB;
 uint8_t  Last_Mode_Switch_Position    = MODE_SWITCH_USB;
+#ifndef KK_GALAXY100_LITE
 bool     Mode_Switch_Changed          = false;
+#endif
 uint16_t Mode_Switch_Debounce_Timer   = 0;
 
 // Mode indicator variables
@@ -102,7 +104,10 @@ OSAL_IRQ_HANDLER(Vector54) {
     uint32_t irq_ifm;
     OSAL_IRQ_PROLOGUE();
 
-    irq_ifm   = EXTI->IFM;
+    irq_ifm = EXTI->IFM;
+#ifdef KK_GALAXY100_LITE
+    irq_ifm &= MD_EXTI_GPIO0 | MD_EXTI_GPIO1;
+#endif
     EXTI->ICR = irq_ifm;
 
     OSAL_IRQ_EPILOGUE();
@@ -113,8 +118,14 @@ OSAL_IRQ_HANDLER(Vector58) {
     uint32_t irq_ifm;
     OSAL_IRQ_PROLOGUE();
 
-    irq_ifm   = EXTI->IFM;
+    irq_ifm = EXTI->IFM;
+#ifdef KK_GALAXY100_LITE
+    irq_ifm &= MD_EXTI_GPIO2 | MD_EXTI_GPIO3;
+#endif
     EXTI->ICR = irq_ifm;
+#ifdef KK_GALAXY100_LITE
+    kk_encoder_sleep_edge(irq_ifm);
+#endif
 
     OSAL_IRQ_EPILOGUE();
 }
@@ -172,8 +183,14 @@ OSAL_IRQ_HANDLER(Vector5C) {
     uint32_t irq_ifm;
     OSAL_IRQ_PROLOGUE();
 
-    irq_ifm   = EXTI->IFM;
+    irq_ifm = EXTI->IFM;
+#ifdef KK_GALAXY100_LITE
+    irq_ifm &= 0xFFF0U;
+#endif
     EXTI->ICR = irq_ifm;
+#ifdef KK_GALAXY100_LITE
+    kk_encoder_sleep_edge(irq_ifm);
+#endif
 
     if (!Init_Spi_Power_Up) {
         if (irq_ifm & (1U << 4)) {
@@ -342,7 +359,11 @@ OSAL_IRQ_HANDLER(Vector78) {
         if (Save_Flash) {
             Save_Flash_3S_Count++;
             if (Save_Flash_3S_Count >= USER_TIME_3S_TIME) {
-                if (Spi_Send_Recv_Flg || (gpio_read_pin(ES_SPI_ACK_IO)) || (!Led_Flash_Busy)) {
+                bool flash_blocked = Spi_Send_Recv_Flg || gpio_read_pin(ES_SPI_ACK_IO) || !Led_Flash_Busy;
+#ifdef KK_GALAXY100_LITE
+                flash_blocked = flash_blocked || rgb_matrix_dma_is_busy();
+#endif
+                if (flash_blocked) {
                     Save_Flash_3S_Count = (USER_TIME_3S_TIME - 10);
                 } else {
                     Keyboard_Info_t Save_Info = Keyboard_Info;
@@ -365,8 +386,12 @@ OSAL_IRQ_HANDLER(Vector78) {
 
         if (Keyboard_Info.Key_Mode != QMK_USB_MODE) {
             if (User_Batt_Send_Spi) {
+#ifdef KK_GALAXY100_LITE
+                User_Batt_Send_Spi = !kk_spi_try_send_battery();
+#else
                 User_Batt_Send_Spi = false;
                 Spi_Send_Commad(USER_BATTERY_DATA);
+#endif
             }
             Usb_If_Ok_Led = false;
         } else {

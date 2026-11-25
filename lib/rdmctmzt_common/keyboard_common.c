@@ -17,6 +17,18 @@
 
 #include "keyboard_common.h"
 
+#ifdef KK_BRIGHTNESS_REPEAT_DELAY_MS
+#    include "process_rgb_matrix.h"
+#endif
+
+#ifdef KK_VIA_SETTINGS
+#    include "kk_via_settings.h"
+#else
+#    define kk_indicator_color(indicator, ...) (__VA_ARGS__)
+#    define kk_indicator_color_flags(indicator) 0
+#    define kk_indicator_enabled(indicator) true
+#endif
+
 // ============================================================================
 // State Variables
 // ============================================================================
@@ -27,6 +39,57 @@ bool Key_Fn_Status = false;
 // Battery display state
 bool    User_Key_Batt_Num_Show = false;
 uint8_t User_Key_Batt_Count    = 0;
+
+#ifdef KK_BRIGHTNESS_INDICATOR_MS
+static bool     brightness_indicator_active;
+static uint32_t brightness_indicator_started;
+
+void kb_show_brightness_preview(void) {
+    if (kk_indicator_enabled(KK_IND_BRIGHTNESS) && rgb_matrix_is_enabled()) {
+        brightness_indicator_active  = true;
+        brightness_indicator_started = timer_read32();
+    }
+}
+#endif
+
+#ifdef KK_BRIGHTNESS_REPEAT_DELAY_MS
+static struct {
+    keypos_t key;
+    uint16_t keycode;
+    uint32_t next_at;
+} brightness_repeat;
+
+static void kb_step_brightness(uint16_t keycode) {
+    keyrecord_t step = {0};
+#    ifdef RGB_TRIGGER_ON_KEYDOWN
+    step.event.pressed = true;
+#    endif
+#    ifdef KK_BRIGHTNESS_INDICATOR_MS
+    kb_show_brightness_preview();
+#    endif
+    process_rgb_matrix(keycode, &step);
+}
+
+static void kb_brightness_repeat_task(void) {
+    if (!brightness_repeat.keycode) {
+        return;
+    }
+
+    keypos_t key = brightness_repeat.key;
+    if (!matrix_is_on(key.row, key.col) || !rgb_matrix_is_enabled() || rgb_matrix_get_suspend_state() ||
+        keymap_key_to_keycode(layer_switch_get_layer(key), key) != brightness_repeat.keycode) {
+        brightness_repeat.keycode = 0;
+        return;
+    }
+
+    uint32_t now = timer_read32();
+    if (timer_expired32(now, brightness_repeat.next_at)) {
+        kb_step_brightness(brightness_repeat.keycode);
+        last_matrix_activity_trigger();
+        brightness_repeat.next_at = now + KK_BRIGHTNESS_REPEAT_INTERVAL_MS;
+    }
+}
+#endif
 
 // LED feedback blink counters
 uint8_t Led_Point_Count     = 0;
@@ -70,11 +133,85 @@ bool kb_get_caps_lock_state(void) {
 }
 
 void kb_set_led_color(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
+#ifdef KK_INDICATOR_FADE
+    kk_indicator_set_color(index, (rgb_t){r, g, b}, 0, 0);
+#else
     rgb_matrix_set_color(index, r, g, b);
+#endif
 }
 
 void kb_led_off(uint8_t index) {
-    rgb_matrix_set_color(index, COLOR_OFF);
+    kb_set_led_color(index, COLOR_OFF);
+}
+
+static void kb_draw_indicator(uint8_t index, bool on, uint16_t phase_ms, rgb_t color, uint8_t flags) {
+#ifdef KK_INDICATOR_FADE
+    if (on) {
+        kk_indicator_set_color(index, color, phase_ms, flags);
+    } else {
+        kk_indicator_clear_request(index);
+    }
+#else
+    (void)phase_ms;
+    (void)flags;
+    color = on ? color : (rgb_t){COLOR_OFF};
+    kb_set_led_color(index, color.r, color.g, color.b);
+#endif
+}
+
+static bool kb_prepare_mode_indicator(uint8_t index, rgb_t *color, uint8_t *flags) {
+#ifdef KK_VIA_SETTINGS
+    kk_indicator_t indicator;
+    switch (index) {
+        case LED_BLE_1_INDEX:
+            indicator = KK_IND_BLE1;
+            break;
+        case LED_BLE_2_INDEX:
+            indicator = KK_IND_BLE2;
+            break;
+        case LED_BLE_3_INDEX:
+            indicator = KK_IND_BLE3;
+            break;
+        case LED_2P4G_INDEX:
+            indicator = KK_IND_24G;
+            break;
+        case LED_USB_INDEX:
+            indicator = KK_IND_USB;
+            break;
+        default:
+            return false;
+    }
+    if (!kk_indicator_enabled(indicator)) {
+        return false;
+    }
+    *color = kk_indicator_color(indicator, *color);
+    *flags = kk_indicator_color_flags(indicator);
+#else
+    (void)index;
+    (void)color;
+    *flags = 0;
+#endif
+    return true;
+}
+
+static void kb_set_mode_indicator(uint8_t index, rgb_t color) {
+    uint8_t flags;
+    if (kb_prepare_mode_indicator(index, &color, &flags)) {
+        kb_draw_indicator(index, true, 0, color, flags);
+    }
+}
+
+static void kb_blink_led(uint8_t index, bool on, uint16_t phase_ms, rgb_t color) {
+    kb_draw_indicator(index, on, phase_ms, color, 0);
+}
+
+static void kb_set_all_indicator_leds(rgb_t color, uint16_t phase_ms) {
+#ifdef KK_INDICATOR_FADE
+    kk_indicators_fill(color, phase_ms);
+#else
+    (void)phase_ms;
+    rgb_matrix_driver_set_color_all(color.r, color.g, color.b);
+#endif
 }
 
 void kb_get_battery_color(uint8_t percent, uint8_t *r, uint8_t *g, uint8_t *b) {
@@ -128,28 +265,29 @@ void kb_led_rf_mode_show(void) {
         Led_Index   = LED_2P4G_INDEX;
     }
 
+    rgb_t   color = {Led_Colour_Tab[Temp_Colour][0], Led_Colour_Tab[Temp_Colour][1], Led_Colour_Tab[Temp_Colour][2]};
+    uint8_t flags;
+    bool    show = kb_prepare_mode_indicator(Led_Index, &color, &flags);
     if (Keyboard_Status.System_Connect_Status == KB_MODE_CONNECT_PAIR) {
-        if (Systick_Led_Count < 10) {
-            rgb_matrix_set_color(Led_Index, Led_Colour_Tab[Temp_Colour][0], Led_Colour_Tab[Temp_Colour][1], Led_Colour_Tab[Temp_Colour][2]);
-        } else {
-            rgb_matrix_set_color(Led_Index, 0, 0, 0);
+        if (show) {
+            kb_draw_indicator(Led_Index, Systick_Led_Count < 10, 100, color, flags);
         }
 
         if (Systick_Led_Count >= 20) {
             Systick_Led_Count = 0;
         }
     } else if (Keyboard_Status.System_Connect_Status == KB_MODE_CONNECT_RETURN) {
-        if (Systick_Led_Count < 25) {
-            rgb_matrix_set_color(Led_Index, Led_Colour_Tab[Temp_Colour][0], Led_Colour_Tab[Temp_Colour][1], Led_Colour_Tab[Temp_Colour][2]);
-        } else {
-            rgb_matrix_set_color(Led_Index, 0, 0, 0);
+        if (show) {
+            kb_draw_indicator(Led_Index, Systick_Led_Count < 25, 250, color, flags);
         }
 
         if (Systick_Led_Count >= 50) {
             Systick_Led_Count = 0;
         }
     } else {
-        rgb_matrix_set_color(Led_Index, Led_Colour_Tab[Temp_Colour][0], Led_Colour_Tab[Temp_Colour][1], Led_Colour_Tab[Temp_Colour][2]);
+        if (show) {
+            kb_draw_indicator(Led_Index, true, 0, color, flags);
+        }
 
         if (Systick_Led_Count >= 240) {
             Systick_Led_Count = 0;
@@ -162,15 +300,19 @@ void kb_led_rf_mode_show(void) {
 }
 
 void kb_led_power_low_show(void) {
+#ifdef KK_INDICATOR_FADE
+    kb_set_all_indicator_leds((rgb_t){COLOR_OFF}, 0);
+#else
     for (uint8_t i = 0; i < RGB_MATRIX_LED_COUNT; i++) {
         rgb_matrix_set_color(i, 0, 0, 0);
     }
+#endif
 
-    if (Systick_Led_Count < 25) {
-        rgb_matrix_set_color(LED_BATT_INDEX, U_PWM, 0x00, 0x00);
-    } else {
-        rgb_matrix_set_color(LED_BATT_INDEX, 0x00, 0x00, 0x00);
-    }
+#ifdef KK_GALAXY100_LITE
+    kb_blink_led(LED_BATT_INDEX, Systick_Led_Count < 25, 250, (rgb_t){COLOR_RED});
+#else
+    kb_blink_led(LED_BATT_INDEX, Systick_Led_Count < 25, 250, (rgb_t){U_PWM, 0, 0});
+#endif
 
     if (Systick_Led_Count >= 50) {
         Systick_Led_Count = 0;
@@ -178,22 +320,11 @@ void kb_led_power_low_show(void) {
 }
 
 void kb_led_point_flash_show(void) {
-    if (Systick_Led_Count < 25) {
-        if (Led_Point_Count) {
-            // Regular LED point counting - light all LEDs
-            rgb_matrix_driver_set_color_all(U_PWM, U_PWM, U_PWM);
-        } else if (Mac_Win_Point_Count) {
-            // Mac/Win mode switching - only blink caps lock LED
-            rgb_matrix_set_color(LED_CAP_INDEX, U_PWM, U_PWM, 0X00);
-        }
-    } else {
-        if (Led_Point_Count) {
-            // Turn off all LEDs for regular point counting
-            rgb_matrix_driver_set_color_all(0X00, 0X00, 0X00);
-        } else if (Mac_Win_Point_Count) {
-            // Turn off only caps lock LED for Mac/Win mode switching
-            rgb_matrix_set_color(LED_CAP_INDEX, 0X00, 0X00, 0X00);
-        }
+    bool on = Systick_Led_Count < 25;
+    if (Led_Point_Count) {
+        kb_set_all_indicator_leds(on ? (rgb_t){COLOR_WHITE} : (rgb_t){COLOR_OFF}, 250);
+    } else if (Mac_Win_Point_Count) {
+        kb_blink_led(LED_CAP_INDEX, on, 250, (rgb_t){U_PWM, U_PWM, 0});
     }
 
     if (Systick_Led_Count >= 50) {
@@ -207,6 +338,41 @@ void kb_led_point_flash_show(void) {
     }
 }
 
+static void kb_show_number_row_level(uint8_t count, rgb_t filled, rgb_t empty, uint8_t flags) {
+    for (uint8_t i = 0; i < BATTERY_LED_COUNT; i++) {
+        rgb_t color = i < count ? filled : empty;
+        kb_draw_indicator(Led_Batt_Index_Tab[i], true, 0, color, flags);
+    }
+}
+
+static void kb_show_battery_level(bool clear_unused) {
+    uint8_t count = MIN((Keyboard_Info.Batt_Number * BATTERY_LED_COUNT) / 100, BATTERY_LED_COUNT);
+#ifdef KK_VIA_SETTINGS
+    rgb_t color = kk_battery_color(Keyboard_Info.Batt_Number);
+#else
+    rgb_t   color;
+    kb_get_battery_color(Keyboard_Info.Batt_Number, &color.r, &color.g, &color.b);
+#endif
+    if (clear_unused) {
+        kb_show_number_row_level(count, color, (rgb_t){COLOR_OFF}, kk_indicator_color_flags(KK_IND_BATTERY));
+    } else {
+        for (uint8_t i = 0; i < count; i++) {
+            kb_set_led_color(Led_Batt_Index_Tab[i], color.r, color.g, color.b);
+        }
+    }
+}
+
+#ifdef KK_BRIGHTNESS_INDICATOR_MS
+static void kb_show_brightness_level(void) {
+    uint8_t value = rgb_matrix_get_val();
+    uint8_t count = (value * BATTERY_LED_COUNT) / RGB_MATRIX_MAXIMUM_BRIGHTNESS;
+    // Keep the first segment visible at any nonzero brightness.
+    rgb_t track = {U_PWM / 16, U_PWM / 16, U_PWM / 16};
+    kb_show_number_row_level(MAX(count, value != 0), kk_indicator_color(KK_IND_BRIGHTNESS, (rgb_t){COLOR_WHITE}), kk_indicator_color(KK_IND_BRIGHTNESS, track),
+                             kk_indicator_color_flags(KK_IND_BRIGHTNESS));
+}
+#endif
+
 void kb_led_batt_number_show(void) {
     if (es_stdby_pin_state == 1) {
         // Charging animation - wave effect
@@ -216,26 +382,28 @@ void kb_led_batt_number_show(void) {
         }
 
         uint8_t wave_offset = User_Key_Batt_Count;
+#ifdef KK_INDICATOR_FADE
+        uint8_t flags = KK_INDICATOR_ANIMATE | kk_indicator_color_flags(KK_IND_BATTERY);
+#endif
         for (uint8_t i = 0; i < BATTERY_LED_COUNT; i++) {
-            kb_set_led_color(Led_Batt_Index_Tab[i], 0, Led_Wave_Pwm_Tab[wave_offset], 0);
+            uint8_t brightness = led_wave_pwm(wave_offset);
+#ifdef KK_INDICATOR_FADE
+            rgb_t color = kk_indicator_color(KK_IND_BATTERY, (rgb_t){0, brightness, 0});
+            kk_indicator_set_color(Led_Batt_Index_Tab[i], color, 0, flags);
+#else
+            kb_set_led_color(Led_Batt_Index_Tab[i], 0, brightness, 0);
+#endif
             wave_offset = (wave_offset + 8) % 128;
         }
     } else if (es_stdby_pin_state == 2) {
         // Fully charged - solid green
-        for (uint8_t i = 0; i < BATTERY_LED_COUNT; i++) {
-            kb_set_led_color(Led_Batt_Index_Tab[i], COLOR_GREEN);
-        }
+        kb_show_number_row_level(BATTERY_LED_COUNT, kk_indicator_color(KK_IND_BATTERY, (rgb_t){COLOR_GREEN}), (rgb_t){COLOR_OFF}, kk_indicator_color_flags(KK_IND_BATTERY));
     } else {
-        // Normal battery display
-        uint8_t led_count = (Keyboard_Info.Batt_Number * BATTERY_LED_COUNT) / 100;
-        if (led_count > BATTERY_LED_COUNT) led_count = BATTERY_LED_COUNT;
-
-        uint8_t r, g, b;
-        kb_get_battery_color(Keyboard_Info.Batt_Number, &r, &g, &b);
-
-        for (uint8_t i = 0; i < led_count; i++) {
-            kb_set_led_color(Led_Batt_Index_Tab[i], r, g, b);
-        }
+#ifdef KK_GALAXY100_LITE
+        kb_show_battery_level(true);
+#else
+        kb_show_battery_level(false);
+#endif
     }
 }
 
@@ -247,18 +415,7 @@ void kb_user_point_show(void) {
 
     Systick_Led_Count = 0;
 
-    // Only override LED color when state is active
-    // When inactive, let RGB Matrix handle the normal color
-
-    // Caps Lock indicator
-    if (kb_get_caps_lock_state()) {
-        kb_set_led_color(LED_CAP_INDEX, COLOR_WHITE);
-    }
-
-    // Win Lock indicator
-    if (Keyboard_Info.Win_Lock) {
-        kb_set_led_color(LED_WIN_L_INDEX, COLOR_WHITE);
-    }
+    kb_update_state_indicators();
 }
 
 void kb_user_test_colour_show(void) {
@@ -290,7 +447,7 @@ void kb_user_test_colour_show(void) {
             Test_B = RGB_MATRIX_MAXIMUM_BRIGHTNESS;
             break;
     }
-    rgb_matrix_driver_set_color_all(Test_R, Test_G, Test_B);
+    kb_set_all_indicator_leds((rgb_t){Test_R, Test_G, Test_B}, 0);
 }
 
 void kb_update_connection_indicator(void) {
@@ -313,12 +470,18 @@ void kb_update_connection_indicator(void) {
 void kb_update_state_indicators(void) {
     // Only override LED color when state is active
     // When inactive, let RGB Matrix handle the normal color
-    if (kb_get_caps_lock_state()) {
-        kb_set_led_color(LED_CAP_INDEX, COLOR_WHITE);
+    if (kk_indicator_enabled(KK_IND_CAPS) && kb_get_caps_lock_state()) {
+        kb_draw_indicator(LED_CAP_INDEX, true, 0, kk_indicator_color(KK_IND_CAPS, (rgb_t){COLOR_WHITE}), kk_indicator_color_flags(KK_IND_CAPS));
     }
 
-    if (Keyboard_Info.Win_Lock) {
-        kb_set_led_color(LED_WIN_L_INDEX, COLOR_WHITE);
+#if defined(KK_INDICATOR_FADE) && defined(LED_NUM_INDEX)
+    if (kk_indicator_enabled(KK_IND_NUM) && (!kb_is_usb_mode() || Usb_If_Ok_Led) && host_keyboard_led_state().num_lock) {
+        kb_draw_indicator(LED_NUM_INDEX, true, 0, kk_indicator_color(KK_IND_NUM, (rgb_t){COLOR_WHITE}), kk_indicator_color_flags(KK_IND_NUM));
+    }
+#endif
+
+    if (kk_indicator_enabled(KK_IND_WIN) && Keyboard_Info.Win_Lock) {
+        kb_draw_indicator(LED_WIN_L_INDEX, true, 0, kk_indicator_color(KK_IND_WIN, (rgb_t){COLOR_WHITE}), kk_indicator_color_flags(KK_IND_WIN));
     }
 }
 
@@ -328,23 +491,23 @@ void kb_show_current_connection_mode(void) {
         case QMK_BLE_MODE:
             switch (Keyboard_Info.Ble_Channel) {
                 case QMK_BLE_CHANNEL_1:
-                    kb_set_led_color(LED_BLE_1_INDEX, COLOR_BLUE);
+                    kb_set_mode_indicator(LED_BLE_1_INDEX, (rgb_t){COLOR_BLUE});
                     break;
                 case QMK_BLE_CHANNEL_2:
-                    kb_set_led_color(LED_BLE_2_INDEX, COLOR_BLUE);
+                    kb_set_mode_indicator(LED_BLE_2_INDEX, (rgb_t){COLOR_BLUE});
                     break;
                 case QMK_BLE_CHANNEL_3:
-                    kb_set_led_color(LED_BLE_3_INDEX, COLOR_BLUE);
+                    kb_set_mode_indicator(LED_BLE_3_INDEX, (rgb_t){COLOR_BLUE});
                     break;
                 default:
                     break;
             }
             break;
         case QMK_2P4G_MODE:
-            kb_set_led_color(LED_2P4G_INDEX, COLOR_GREEN);
+            kb_set_mode_indicator(LED_2P4G_INDEX, (rgb_t){COLOR_GREEN});
             break;
         case QMK_USB_MODE:
-            kb_set_led_color(LED_USB_INDEX, COLOR_WHITE);
+            kb_set_mode_indicator(LED_USB_INDEX, (rgb_t){COLOR_WHITE});
             break;
         default:
             break;
@@ -373,9 +536,10 @@ void kb_toggle_all_leds(void) {
 }
 
 void kb_show_reset_progress(void) {
+    rgb_t color = {COLOR_RED};
     if (reset_hold_phase) {
         // After 3 seconds of blinking, hold solid red for 1 second before reset
-        kb_set_led_color(reset_key_led_index, COLOR_RED);
+        kb_draw_indicator(reset_key_led_index, true, 0, color, 0);
     } else {
         // Blink the reset key LED red every 250ms while EE_CLR is held
         if (timer_elapsed(reset_blink_timer) > 250) {
@@ -383,11 +547,7 @@ void kb_show_reset_progress(void) {
         }
 
         // Blink: on for first 125ms, off for next 125ms
-        if (timer_elapsed(reset_blink_timer) < 125) {
-            kb_set_led_color(reset_key_led_index, COLOR_RED);
-        } else {
-            kb_led_off(reset_key_led_index);
-        }
+        kb_blink_led(reset_key_led_index, timer_elapsed(reset_blink_timer) < 125, 125, color);
     }
 }
 
@@ -396,40 +556,68 @@ void kb_show_reset_progress(void) {
 // ============================================================================
 
 bool kb_rgb_matrix_indicators_common(uint8_t led_min, uint8_t led_max) {
+#ifndef KK_INDICATOR_FADE
     // Show EEPROM reset progress (blinking) when EE_CLR is held
     if (Key_Reset_Status) {
         kb_show_reset_progress();
     }
+#endif
 
 #if LED_CONNECTION_INDICATOR_ENABLE
     kb_update_connection_indicator();
 #endif
     kb_update_state_indicators();
 
-    // Show current connection mode when Fn key is held
-    if (Key_Fn_Status) {
+#ifdef KK_GALAXY100_LITE
+    bool show_battery = User_Key_Batt_Num_Show && kk_indicator_enabled(KK_IND_BATTERY);
+    if (Key_Fn_Status || show_battery || Show_Mode_Indicator) {
         kb_show_current_connection_mode();
     }
 
-    // Show temporary mode/battery indicators when triggered
-    if (User_Key_Batt_Num_Show || Show_Mode_Indicator) {
-        // Reuse the connection mode indicator function
-        kb_show_current_connection_mode();
+#ifdef KK_BRIGHTNESS_INDICATOR_MS
+    if (brightness_indicator_active) {
+        brightness_indicator_active = kk_indicator_enabled(KK_IND_BRIGHTNESS) && rgb_matrix_is_enabled() && timer_elapsed32(brightness_indicator_started) < KK_BRIGHTNESS_INDICATOR_MS;
+    }
+#endif
 
-        if (User_Key_Batt_Num_Show) {
-            uint8_t battery_leds = (Keyboard_Info.Batt_Number * BATTERY_LED_COUNT) / 100;
-            if (battery_leds > BATTERY_LED_COUNT) battery_leds = BATTERY_LED_COUNT;
-
-            uint8_t bat_r, bat_g, bat_b;
-            kb_get_battery_color(Keyboard_Info.Batt_Number, &bat_r, &bat_g, &bat_b);
-
-            for (uint8_t i = 0; i < BATTERY_LED_COUNT; i++) {
-                if (i < battery_leds) {
-                    kb_set_led_color(Led_Batt_Index_Tab[i], bat_r, bat_g, bat_b);
-                } else {
-                    kb_led_off(Led_Batt_Index_Tab[i]);
-                }
+    if (User_Power_Low) {
+        kb_led_power_low_show();
+    } else if (Test_Led) {
+        kb_user_test_colour_show();
+    } else {
+        bool show_radio = Led_Rf_Pair_Flg && !kb_is_usb_mode();
+        if (show_battery) {
+            if (show_radio) {
+                kb_show_battery_level(true);
+            } else {
+                kb_led_batt_number_show();
             }
+#ifdef KK_BRIGHTNESS_INDICATOR_MS
+        } else if (brightness_indicator_active) {
+            kb_show_brightness_level();
+#endif
+        } else if (!show_radio) {
+            kb_user_point_show();
+        }
+        if (show_radio) {
+            kb_led_rf_mode_show();
+        }
+    }
+
+#ifdef KK_INDICATOR_FADE
+    // Show reset feedback over other indicators on the same key.
+    if (Key_Reset_Status && !User_Power_Low && !Test_Led) {
+        kb_show_reset_progress();
+    }
+#endif
+#else
+    if (Key_Fn_Status) {
+        kb_show_current_connection_mode();
+    }
+    if (User_Key_Batt_Num_Show || Show_Mode_Indicator) {
+        kb_show_current_connection_mode();
+        if (User_Key_Batt_Num_Show) {
+            kb_show_battery_level(true);
         }
     }
 
@@ -444,6 +632,7 @@ bool kb_rgb_matrix_indicators_common(uint8_t led_min, uint8_t led_max) {
     } else {
         kb_user_point_show();
     }
+#endif
 
     return false;
 }
@@ -515,6 +704,10 @@ void kb_housekeeping_task(void) {
     }
 
     Usb_Auto_Switch_Task();
+
+#ifdef KK_BRIGHTNESS_REPEAT_DELAY_MS
+    kb_brightness_repeat_task();
+#endif
 
 #if LOGO_LED_ENABLE
     // Update logo LEDs independently of RGB matrix state
@@ -769,21 +962,34 @@ bool kb_process_record_common(uint16_t keycode, keyrecord_t *record) {
             }
         }
             return true;
-        case RM_VALU: {
-            if (!record->event.pressed) {
-                if (rgb_matrix_get_val() >= RGB_MATRIX_MAXIMUM_BRIGHTNESS) {
-                    Led_Point_Count = 3;
+        case RM_VALU:
+        case RM_VALD:
+#ifdef KK_BRIGHTNESS_REPEAT_DELAY_MS
+            if (IS_KEYEVENT(record->event)) {
+                if (record->event.pressed) {
+                    brightness_repeat.key     = record->event.key;
+                    brightness_repeat.keycode = keycode;
+                    brightness_repeat.next_at = timer_read32() + KK_BRIGHTNESS_REPEAT_DELAY_MS;
+                    kb_step_brightness(keycode);
+                } else if (KEYEQ(brightness_repeat.key, record->event.key)) {
+                    brightness_repeat.keycode = 0;
                 }
+                return false;
             }
-        }
-            return true;
-        case RM_VALD: {
+#endif
+#ifdef KK_BRIGHTNESS_INDICATOR_MS
+#    ifdef RGB_TRIGGER_ON_KEYDOWN
+            if (record->event.pressed) {
+#    else
             if (!record->event.pressed) {
-                if (rgb_matrix_get_val() <= 0) {
-                    Led_Point_Count = 3;
-                }
+#    endif
+                kb_show_brightness_preview();
             }
-        }
+#else
+            if (!record->event.pressed && (keycode == RM_VALU ? rgb_matrix_get_val() >= RGB_MATRIX_MAXIMUM_BRIGHTNESS : rgb_matrix_get_val() == 0)) {
+                Led_Point_Count = 3;
+            }
+#endif
             return true;
         case RM_SPDU: {
             if (!record->event.pressed) {

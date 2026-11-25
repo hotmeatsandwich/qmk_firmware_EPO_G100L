@@ -58,6 +58,12 @@
 #define TRANSIENT_EEPROM_SIZE 4096
 
 #define RGB_MATRIX_LED_COUNT 101
+// Private FS026 hardware paths shared by this board's driver and library hooks.
+#define KK_GALAXY100_LITE
+#define RGB_MATRIX_DRIVER_BRIGHTNESS_TRANSITION_MS 100U
+#define RGB_DIGITAL_RAIN_USE_QMK_RANDOM
+#define RGB_MATRIX_DEFER_EEPROM_WRITE
+#define RAW_HID_ORDERED_RESPONSES
 #define RGB_MATRIX_KEYPRESSES
 #define RGB_MATRIX_KEYRELEASES
 #define RGB_MATRIX_FRAMEBUFFER_EFFECTS
@@ -65,6 +71,19 @@
 #define RGB_MATRIX_MAXIMUM_BRIGHTNESS 180
 #define RGB_MATRIX_SLEEP
 #define RGB_MATRIX_DEFAULT_MODE RGB_MATRIX_RIVERFLOW
+#define KK_BACKLIGHT // Fade the backlight at power-on and across sleep.
+#define KK_INDICATOR_FADE
+#define KK_INDICATOR_FADE_MS 100U
+#define KK_BRIGHTNESS_INDICATOR_MS 1000U
+#define KK_BRIGHTNESS_REPEAT_DELAY_MS 300U
+#define KK_BRIGHTNESS_REPEAT_INTERVAL_MS 75U
+
+#define KK_ENCODER_CLICK_MS 220U
+#define KK_ENCODER_HOLD_MS 500U
+#define KK_VIA_SETTINGS
+#define KK_VIA_SAVE_IDLE_MS 500U
+#define VIA_FIRMWARE_VERSION 2
+#define KEYCODE_OVERRIDE_ENABLE // Dispatch assigned gestures through QMK's action pipeline.
 
 // BLE configuration for Galaxy100 Lite
 #define USER_BLE_ID (0X0100) // Galaxy100 Lite BLE ID
@@ -74,8 +93,10 @@
 
 /* LED Index Definitions required by lib/rdmctmzt_common/keyboard_common.h */
 #define LED_CAP_INDEX 56   // Caps Lock indicator (Caps key)
+#define LED_NUM_INDEX 33   // Num Lock indicator (Num Lock key)
 #define LED_WIN_L_INDEX 90 // Win Lock indicator (left GUI key)
 #define LED_BATT_INDEX 19  // Low battery warning (number row '1' key)
+#define BATTERY_LED_COUNT 10
 #define LED_BLE_1_INDEX 38 // 'Q' key position for BLE 1
 #define LED_BLE_2_INDEX 39 // 'W' key position for BLE 2
 #define LED_BLE_3_INDEX 40 // 'E' key position for BLE 3

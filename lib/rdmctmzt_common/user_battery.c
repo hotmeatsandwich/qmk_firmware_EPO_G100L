@@ -49,11 +49,6 @@ ErrorStatus rdmctmzt_adc_software_calibration(ADC_TypeDef *ADCx, md_adc_initial 
     uint16_t adc_data_1 = 0;
     uint16_t adc_data_15 = 0;
 
-    int16_t adc_offset = 0;
-    uint16_t adc_gain = 0;
-
-    float temp_adc_offset = 0.0f;
-
     md_syscfg_set_vref_source(SYSCFG, MD_SYSCFG_PWR_VDDA); // VRES choose VDDA
     md_syscfg_enable_vref(SYSCFG);
 
@@ -109,18 +104,29 @@ ErrorStatus rdmctmzt_adc_software_calibration(ADC_TypeDef *ADCx, md_adc_initial 
     adc_data_15 = md_adc_get_normal_data(ADCx);
 
     // --------------------------------------------------------
-    temp_adc_offset = (float)((15 * adc_data_1) - adc_data_15) / 14;
-
+#ifdef KK_GALAXY100_LITE
+    const uint32_t gain_numerator = 3584U * 1024U;
+    int32_t        span           = (int32_t)adc_data_15 - adc_data_1;
+    // Keep the unity gain and zero offset if the calibration samples are invalid.
+    if (span > (int32_t)(gain_numerator / UINT16_MAX)) {
+        int32_t  offset     = 15 * (int32_t)adc_data_1 - adc_data_15;
+        int16_t  adc_offset = (offset + (offset < 0 ? -7 : 7)) / 14;
+        uint16_t adc_gain   = (gain_numerator + (uint32_t)span / 2U) / (uint32_t)span;
+        md_adc_set_gain_factor(ADCx, adc_gain);
+        md_adc_set_offset_factor(ADCx, adc_offset);
+    }
+#else
+    float temp_adc_offset = (float)((15 * adc_data_1) - adc_data_15) / 14;
+    int16_t adc_offset;
     if (temp_adc_offset > 0) {
         adc_offset = (int16_t)(temp_adc_offset + 0.5);
     } else {
         adc_offset = (int16_t)(temp_adc_offset - 0.5);
     }
-
-    adc_gain   = (uint16_t)((3584 * 1024) / (float)(adc_data_15 - adc_data_1) + 0.5);
-
+    uint16_t adc_gain = (uint16_t)((3584 * 1024) / (float)(adc_data_15 - adc_data_1) + 0.5);
     md_adc_set_gain_factor(ADCx, adc_gain);
     md_adc_set_offset_factor(ADCx, adc_offset);
+#endif
 
     // --------------------------------------------------------
     md_adc_set_convsersion_mode(ADCx, 0);
@@ -359,6 +365,11 @@ void User_Adc_Batt_Number(void) {
     }
 
     if (es_stdby_pin_state == 1) {
+#ifdef KK_GALAXY100_LITE
+        // A saved 100% can survive a restart or a new charging cycle.
+        User_Batt_BaiFen = MIN(User_Batt_BaiFen, 99);
+        User_Batt_Old_BaiFen = MIN(User_Batt_Old_BaiFen, 99);
+#endif
         if (Temp_Batt_Number >= 100) {
             Temp_Batt_Number = 99;
         } else if (Temp_Batt_Number <= 0) {

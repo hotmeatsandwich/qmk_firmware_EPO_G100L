@@ -9,18 +9,39 @@ the closed-source `rdr_lib` shipped by the vendor.
 * Keyboard Maintainer: [CarlosEDP](https://github.com/carlosedp)
 * Hardware Supported: EPOMAKER Galaxy100 Lite PCB with es32fs026 microcontroller
 
-Make example for this keyboard (after setting up your build environment):
+From the repository root, initialize the QMK submodules and build the default keymap.
 
-    make epomaker/galaxy100_lite:default
+```sh
+git submodule update --init --recursive
+make epomaker/galaxy100_lite:default
+```
 
-Flashing example for this keyboard:
+The build produces `epomaker_galaxy100_lite_default.bin` in the repository root.
 
-1. Hold ESC while plugging it in wired mode to enter flash mode
-2. Create the binary with make
-3. Copy the binary on the mounted flash drive
-4. The flash drive should disappear and the keyboard restarts with the new firmware
+1. Hold Esc while plugging in the keyboard in wired mode to enter the bootloader.
+2. Copy the binary to the drive mounted by the bootloader.
+3. Wait for the drive to disappear and the keyboard to restart.
 
-See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_tools) and the [make instructions](https://docs.qmk.fm/#/getting_started_make_guide) for more information. Brand new to QMK? Start with our [Complete Newbs Guide](https://docs.qmk.fm/#/newbs).
+See the [QMK build environment setup](../../../docs/newbs_getting_started.md)
+and [make instructions](../../../docs/getting_started_make_guide.md).
+
+## Firmware changes
+
+- **Backlight.** A single fade duration covers power-on, sleep and wake. Brightness
+  adjustments interpolate over 100 ms and can be repeated by holding the key.
+  Changing brightness previews a white bar on `1`–`0` in the default configuration.
+- **Indicators.** Locks, connection modes and status bars share an easing function.
+  VIA controls visibility, color and brightness for each indicator, with one shared
+  indicator fade duration.
+- **Encoder.** The quadrature resolution is two transitions per step. The firmware
+  handles double click, triple click, hold, hold and turn, and click followed by hold
+  and turn. Rotation can wake the keyboard in Bluetooth and 2.4 GHz modes.
+- **RGB and battery.** The driver keeps the DMA frame stable during transfer. VIA
+  defers flash writes during edits. Digital Rain uses QMK's random generator, and
+  software ADC calibration uses integer arithmetic. The brightness limit is `180`.
+
+See the [implementation and porting guide](porting.md) for the code paths,
+configuration switches and checks for adapting a feature to another board.
 
 ## VIA
 
@@ -28,8 +49,31 @@ VIA is enabled in the default keymap. Load
 [`VIA_Mapping_Galaxy100_Lite.json`](VIA_Mapping_Galaxy100_Lite.json) as a design
 file in VIA (Settings -> Show Design tab -> Design -> Load). The vendor's original
 file is kept alongside it as `Epomaker Galaxy100 Lite.JSON` for reference; the
-maintained one carries the custom keycode list and a brightness range that
-matches the cap built into the firmware.
+maintained one carries the custom keycode list and the Galaxy100 Lite settings.
+
+**Lighting → Backlight → Fade** sets the backlight transition time at power-on,
+sleep, and wake in milliseconds. Set it to zero for an instant transition.
+**Lighting → Lock Indicators → Indicator Fade** sets the shared indicator fade
+duration in milliseconds. It defaults to 100 ms. Set it to zero for instant transitions.
+**Lock Indicators**, **Mode Indicators**, and **Status Bars** group the individual indicator switches. Turn on
+an indicator to reveal its color and brightness controls. The battery bar uses
+**Low Color** through 20%, **Medium Color** through 50%, and **High / Charged
+Color** above 50% and while charging. The low-power warning has its own red
+signal.
+
+**Lighting → Status Bars → Battery Level** displays the keyboard's estimated
+percentage and the charger's state in compatible VIA clients. At startup on
+USB, the estimate starts from the saved value and converges gradually. A startup
+on battery takes a fresh ADC estimate.
+
+**Gestures** accepts QMK keycodes for the knob. All seven fields default to
+`KC_NO`. Clearing a click or hold gesture uses the knob's ordinary button
+assignment once. Clearing a held-turn direction uses the normal encoder map on
+the active layer. The timing fields in **Gestures → Encoder** set the click window
+(220 ms by default) and the hold threshold (500 ms by default). The hold action
+runs on release so holding and turning can still trigger a turn gesture.
+Settings are saved to the last 64 bytes of emulated EEPROM, above the keymap and
+macro regions.
 
 The effect dropdown is generated from the effect order the firmware actually
 compiles (the enabled entries of `rgb_matrix.animations` in `keyboard.json`, in
